@@ -11,6 +11,35 @@
             max-height: 500px; /* Ajusta esta altura según tus necesidades */
             overflow-y: auto;
         }
+        .recording-indicator {
+            display: none;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            color: red;
+        }
+
+        .recording-indicator.active {
+            display: flex;
+        }
+
+        .recording-dot {
+            width: 10px;
+            height: 10px;
+            margin-left: 10px;
+            background-color: red;
+            border-radius: 50%;
+            animation: blink 1s infinite;
+        }
+
+        @keyframes blink {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
@@ -126,6 +155,9 @@
                                 sendAudio(audioBlob);
                                 audioChunks = [];
                             }
+                        };
+                        mediaRecorder.onstop = () => {
+                            recordingIndicator.classList.remove('active');
                         };
                     })
                     .catch(error => console.error('Error al acceder al micrófono:', error));
