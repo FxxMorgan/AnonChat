@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chat Anónimo</title>
+    <!-- Incluir Tailwind CSS desde CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        #messagesContainer {
+            max-height: 500px; /* Ajusta esta altura según tus necesidades */
+            overflow-y: auto;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
+    <div id="login" class="w-full max-w-xs mx-auto p-4">
+        <div class="bg-gray-800 shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <h2 class="text-2xl mb-4 text-center">Unirse a una Sala</h2>
+            <input type="text" id="nickname" placeholder="Introduce tu apodo" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4">
+            <input type="text" id="room" placeholder="Introduce el nombre de la sala" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4">
+            <button id="joinRoom" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full">Unirse a la Sala</button>
+        </div>
+    </div>
+
+    <div id="chat" class="hidden w-full max-w-2xl mx-auto p-4">
+        <div class="bg-gray-800 shadow-md rounded px-8 pt-6 pb-8 mb-4">
+            <div id="messagesContainer" class="mb-4">
+                <ul id="messages" class="list-none p-0 m-0 space-y-2"></ul>
+            </div>
+            <div id="typingIndicator" class="hidden text-gray-400 mb-2"></div>
+            <div class="flex flex-col lg:flex-row">
+                <input id="message" autocomplete="off" placeholder="Escribe un mensaje" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-2 lg:mb-0 lg:mr-2">
+                <button id="send" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Enviar</button>
+            </div>
+            <div class="mt-4 flex items-center">
+                <input type="file" id="fileInput" class="hidden">
+                <button id="sendFile" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mt-2">Enviar Archivo</button>
+                <button id="recordAudio" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mt-2 ml-2">Grabar Audio</button>
+                <div id="recordingIndicator" class="recording-indicator ml-2">
+                    Grabando
+                    <div class="recording-dot"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        let mediaRecorder;
+        let audioChunks = [];
+
+        document.getElementById('joinRoom').addEventListener('click', () => {
+            const nickname = document.getElementById('nickname').value;
+            const room = document.getElementById('room').value;
+            if (nickname && room) {
+                socket.emit('joinRoom', { room, nickname });
+                document.getElementById('login').style.display = 'none';
+                document.getElementById('chat').style.display = 'block';
+            }
+        });
+
+        document.getElementById('send').addEventListener('click', sendMessage);
+        document.getElementById('sendFile').addEventListener('click', () => document.getElementById('fileInput').click());
+        document.getElementById('fileInput').addEventListener('change', sendFile);
+        document.getElementById('recordAudio').addEventListener('click', toggleRecording);
+
+        document.getElementById('message').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') {
+                sendMessage();
+            } else {
+                socket.emit('typing');
+            }
+        });
+
+        document.getElementById('message').addEventListener('keyup', () => {
+            setTimeout(() => {
+                socket.emit('stopTyping');
+            }, 1000);
+        });
+
+        function sendMessage() {
+            const message = document.getElementById('message').value;
+            if (message) {
+                socket.emit('chatMessage', message);
+                document.getElementById('message').value = '';
+                socket.emit('stopTyping');
+            }
+        }
+
+        function sendFile(event) {
+            const file = event.target.files[0];
+            const formData = new FormData();
+            formData.append('file', file);
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                socket.emit('fileMessage', {
+                    filePath: data.filePath,
+                    fileName: data.fileName
+                });
+            })
+            .catch(error => console.error('Error al subir el archivo:', error));
+        }
+
+        function toggleRecording() {
+            const recordingIndicator = document.getElementById('recordingIndicator');
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.stop();
+                recordingIndicator.classList.remove('active');
+            } else {
+                navigator.mediaDevices.getUserMedia({ audio: true })
+                    .then(stream => {
+                        mediaRecorder = new MediaRecorder(stream);
+                        mediaRecorder.start();
+                        recordingIndicator.classList.add('active');
+                        mediaRecorder.ondataavailable = event => {
+                            audioChunks.push(event.data);
+                            if (mediaRecorder.state === 'inactive') {
+                                const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                                sendAudio(audioBlob);
+                                audioChunks = [];
+                            }
+                        };
+                    })
+                    .catch(error => console.error('Error al acceder al micrófono:', error));
+            }
+        }
+
+        function sendAudio(audioBlob) {
+            const formData = new FormData();
+            formData.append('file', audioBlob, 'audio-message.webm');
+
+            fetch('/upload', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                socket.emit('fileMessage', {
+                    filePath: data.filePath,
+                    fileName: 'Audio Message'
+                });
+            })
+            .catch(error => console.error('Error al subir el archivo de audio:', error));
+        }
+
+        socket.on('message', (msg) => {
+            const item = document.createElement('li');
+            item.textContent = msg.text;
+            item.style.color = msg.color;
+            item.classList.add('bg-gray-700', 'p-2', 'rounded');
+            document.getElementById('messages').appendChild(item);
+            scrollToBottom();
+        });
+
+        socket.on('fileMessage', (data) => {
+            const item = document.createElement('li');
+            item.style.color = data.color;
+            item.classList.add('bg-gray-700', 'p-2', 'rounded');
+
+            const link = document.createElement('a');
+            link.href = data.filePath;
+            link.target = "_blank";
+            link.textContent = `${data.nickname} envió un archivo: ${data.fileName}`;
+            link.classList.add('text-blue-500', 'hover:underline');
+
+            item.appendChild(link);
+
+            // Mostrar una previsualización si es una imagen, vídeo o audio
+            if (data.filePath.endsWith('.jpg') || data.filePath.endsWith('.jpeg') || data.filePath.endsWith('.png') || data.filePath.endsWith('.gif')) {
+                const img = document.createElement('img');
+                img.src = data.filePath;
+                img.alt = data.fileName;
+                img.classList.add('mt-2', 'max-w-xs');
+                item.appendChild(img);
+            } else if (data.filePath.endsWith('.mp4') || data.filePath.endsWith('.webm')) {
+                const video = document.createElement('video');
+                video.src = data.filePath;
+                video.controls = true;
+                video.classList.add('mt-2', 'max-w-xs');
+                item.appendChild(video);
+            } else if (data.filePath.endsWith('.mp3') || data.filePath.endsWith('.wav') || data.filePath.endsWith('.webm')) {
+                const audio = document.createElement('audio');
+                audio.src = data.filePath;
+                audio.controls = true;
+                audio.classList.add('mt-2');
+                item.appendChild(audio);
+            }
+
+            document.getElementById('messages').appendChild(item);
+            scrollToBottom();
+        });
+
+        socket.on('typing', (data) => {
+            const typingIndicator = document.getElementById('typingIndicator');
+            typingIndicator.textContent = `${data.nickname} está escribiendo...`;
+            typingIndicator.style.color = data.color;
+            typingIndicator.classList.remove('hidden');
+        });
+
+        socket.on('stopTyping', () => {
+            const typingIndicator = document.getElementById('typingIndicator');
+            typingIndicator.classList.add('hidden');
+        });
+
+        function scrollToBottom() {
+            const messagesContainer = document.getElementById('messagesContainer');
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    </script>
+</body>
+</html>
