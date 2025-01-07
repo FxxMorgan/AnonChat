@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,9 +9,10 @@
     <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
     <style>
         #messagesContainer {
-            max-height: 500px; /* Ajusta esta altura según tus necesidades */
+            max-height: 500px;
             overflow-y: auto;
         }
+
         .recording-indicator {
             display: none;
             justify-content: center;
@@ -33,22 +35,39 @@
         }
 
         @keyframes blink {
-            0%, 100% {
+            0%,
+            100% {
                 opacity: 1;
             }
+
             50% {
                 opacity: 0;
             }
         }
     </style>
 </head>
+
 <body class="bg-gray-900 text-white flex items-center justify-center min-h-screen">
     <div id="login" class="w-full max-w-xs mx-auto p-4">
         <div class="bg-gray-800 shadow-md rounded px-8 pt-6 pb-8 mb-4">
             <h2 class="text-2xl mb-4 text-center">Unirse a una Sala</h2>
-            <input type="text" id="nickname" placeholder="Introduce tu apodo" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4">
-            <input type="text" id="room" placeholder="Introduce el nombre de la sala" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4">
-            <button id="joinRoom" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full">Unirse a la Sala</button>
+            <input type="text" id="nickname" placeholder="Introduce tu apodo"
+                class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4" required>
+            <input type="text" id="room" placeholder="Introduce el nombre de la sala"
+                class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4" required>
+            <div class="flex items-center mb-4">
+                <input type="checkbox" id="isPrivate" class="mr-2">
+                <label for="isPrivate">Sala Privada</label>
+            </div>
+            <input type="password" id="roomPassword" placeholder="Introduce la contraseña de la sala (si es privada)"
+                class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-4" style="display: none;">
+            <button id="joinRoom"
+                class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline w-full">Unirse
+                a la Sala</button>
+        </div>
+        <div class="bg-gray-800 shadow-md rounded px-8 pt-6 pb-8">
+            <h3 class="text-xl mb-4 text-center">Salas Disponibles</h3>
+            <ul id="availableRooms" class="list-none p-0 m-0 space-y-2"></ul>
         </div>
     </div>
 
@@ -59,13 +78,19 @@
             </div>
             <div id="typingIndicator" class="hidden text-gray-400 mb-2"></div>
             <div class="flex flex-col lg:flex-row">
-                <input id="message" autocomplete="off" placeholder="Escribe un mensaje" class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-2 lg:mb-0 lg:mr-2">
-                <button id="send" class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Enviar</button>
+                <input id="message" autocomplete="off" placeholder="Escribe un mensaje"
+                    class="shadow appearance-none border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none focus:shadow-outline mb-2 lg:mb-0 lg:mr-2">
+                <button id="send"
+                    class="bg-blue-500 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline">Enviar</button>
             </div>
             <div class="mt-4 flex items-center">
                 <input type="file" id="fileInput" class="hidden">
-                <button id="sendFile" class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mt-2">Enviar Archivo</button>
-                <button id="recordAudio" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mt-2 ml-2">Grabar Audio</button>
+                <button id="sendFile"
+                    class="bg-green-500 hover:bg-green-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mt-2">Enviar
+                    Archivo</button>
+                <button id="recordAudio"
+                    class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline mt-2 ml-2">Grabar
+                    Audio</button>
                 <div id="recordingIndicator" class="recording-indicator ml-2">
                     Grabando
                     <div class="recording-dot"></div>
@@ -80,20 +105,12 @@
         let mediaRecorder;
         let audioChunks = [];
 
-        document.getElementById('joinRoom').addEventListener('click', () => {
-            const nickname = document.getElementById('nickname').value;
-            const room = document.getElementById('room').value;
-            if (nickname && room) {
-                socket.emit('joinRoom', { room, nickname });
-                document.getElementById('login').style.display = 'none';
-                document.getElementById('chat').style.display = 'block';
-            }
-        });
-
+        document.getElementById('joinRoom').addEventListener('click', joinRoom);
         document.getElementById('send').addEventListener('click', sendMessage);
         document.getElementById('sendFile').addEventListener('click', () => document.getElementById('fileInput').click());
         document.getElementById('fileInput').addEventListener('change', sendFile);
         document.getElementById('recordAudio').addEventListener('click', toggleRecording);
+        document.getElementById('isPrivate').addEventListener('change', togglePasswordInput);
 
         document.getElementById('message').addEventListener('keydown', (event) => {
             if (event.key === 'Enter') {
@@ -107,6 +124,30 @@
             setTimeout(() => {
                 socket.emit('stopTyping');
             }, 1000);
+        });
+
+        function joinRoom() {
+            const nickname = document.getElementById('nickname').value.trim();
+            const room = document.getElementById('room').value.trim();
+            const isPrivate = document.getElementById('isPrivate').checked;
+            const password = document.getElementById('roomPassword').value; // Cambiado a roomPassword
+
+            // Validaciones básicas
+            if (!nickname || !room) {
+                alert('Por favor, completa todos los campos requeridos.');
+                return;
+            }
+
+            socket.emit('joinRoom', { room, nickname, isPrivate, password });
+        }
+
+        socket.on('incorrectPassword', () => {
+            alert('Contraseña incorrecta para esta sala');
+        });
+
+        socket.on('joinSuccess', () => {
+            document.getElementById('login').style.display = 'none';
+            document.getElementById('chat').style.display = 'block';
         });
 
         function sendMessage() {
@@ -127,14 +168,14 @@
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
-            .then(data => {
-                socket.emit('fileMessage', {
-                    filePath: data.filePath,
-                    fileName: data.fileName
-                });
-            })
-            .catch(error => console.error('Error al subir el archivo:', error));
+                .then(response => response.json())
+                .then(data => {
+                    socket.emit('fileMessage', {
+                        filePath: data.filePath,
+                        fileName: data.fileName
+                    });
+                })
+                .catch(error => console.error('Error al subir el archivo:', error));
         }
 
         function toggleRecording() {
@@ -172,19 +213,29 @@
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
-            .then(data => {
-                socket.emit('fileMessage', {
-                    filePath: data.filePath,
-                    fileName: 'Audio Message'
-                });
-            })
-            .catch(error => console.error('Error al subir el archivo de audio:', error));
+                .then(response => response.json())
+                .then(data => {
+                    socket.emit('fileMessage', {
+                        filePath: data.filePath,
+                        fileName: 'Audio Message'
+                    });
+                })
+                .catch(error => console.error('Error al subir el archivo de audio:', error));
+        }
+
+        function togglePasswordInput() {
+            const isPrivate = document.getElementById('isPrivate').checked;
+            const passwordInput = document.getElementById('roomPassword');
+            if (isPrivate) {
+                passwordInput.style.display = 'block';
+            } else {
+                passwordInput.style.display = 'none';
+            }
         }
 
         socket.on('message', (msg) => {
             const item = document.createElement('li');
-            item.textContent = msg.text;
+            item.textContent = `${msg.nickname}: ${msg.text}`; // Incluye el nickname
             item.style.color = msg.color;
             item.classList.add('bg-gray-700', 'p-2', 'rounded');
             document.getElementById('messages').appendChild(item);
@@ -241,10 +292,27 @@
             typingIndicator.classList.add('hidden');
         });
 
+        socket.on('availableRooms', (rooms) => {
+            const availableRooms = document.getElementById('availableRooms');
+            availableRooms.innerHTML = '';
+            rooms.forEach(room => {
+                const item = document.createElement('li');
+                item.textContent = `${room.name} ${room.isPrivate ? '🔒' : ''}`;  // Add lock emoji for private rooms
+                item.classList.add('bg-gray-700', 'p-2', 'rounded', 'cursor-pointer');
+                item.addEventListener('click', () => {
+                    document.getElementById('room').value = room.name;
+                    document.getElementById('isPrivate').checked = room.isPrivate;
+                    togglePasswordInput(); // Show password field if room is private
+                });
+                availableRooms.appendChild(item);
+            });
+        });
+
         function scrollToBottom() {
             const messagesContainer = document.getElementById('messagesContainer');
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
     </script>
 </body>
+
 </html>

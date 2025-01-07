@@ -49,6 +49,7 @@ const userColors = {};
 const colors = ['#FF5733', '#33FF57', '#3357FF', '#FF33A2', '#FFD700', '#00FFFF', '#FF4500'];
 const roomUsers = {}; // Contador de usuarios en cada sala
 const roomTimeouts = {}; // Manejo de tiempo de inactividad en cada sala
+const rooms = {}; // Información de salas (nombre, tipo, contraseña)
 
 function getRandomColor() {
     return colors[Math.floor(Math.random() * colors.length)];
@@ -71,7 +72,28 @@ function clearRoomFiles(room) {
 io.on('connection', (socket) => {
     console.log('Un usuario se ha conectado');
 
-    socket.on('joinRoom', ({ room, nickname }) => {
+    // Enviar la lista de salas disponibles al usuario
+    socket.emit('availableRooms', Object.values(rooms).map(room => ({
+        name: room.name,
+        isPrivate: room.isPrivate
+    })));
+
+    socket.on('joinRoom', ({ room, nickname, isPrivate, password }) => {
+        // Check if room exists and is private
+        if (rooms[room]) {
+            if (rooms[room].isPrivate && rooms[room].password !== password) {
+                socket.emit('incorrectPassword');
+                return;
+            }
+        } else {
+            // If room doesn't exist, create it with the provided settings
+            rooms[room] = {
+                name: room,
+                isPrivate,
+                password: isPrivate ? password : null
+            };
+        }
+
         socket.join(room);
         socket.room = room;
         socket.nickname = nickname;
@@ -90,11 +112,25 @@ io.on('connection', (socket) => {
             delete roomTimeouts[room];
         }
 
-        io.to(room).emit('message', { text: `${nickname} se ha unido a la sala`, color: userColors[nickname] });
+        // Emit success event
+        socket.emit('joinSuccess');
+        io.to(room).emit('message', {
+            text: `${nickname} se ha unido a la sala`,
+            color: userColors[nickname]
+        });
+
+        // Update available rooms for all clients
+        io.emit('availableRooms', Object.values(rooms).map(room => ({
+            name: room.name,
+            isPrivate: room.isPrivate
+        })));
     });
 
     socket.on('chatMessage', (msg) => {
-        io.to(socket.room).emit('message', { text: `${socket.nickname}: ${msg}`, color: userColors[socket.nickname] });
+        io.to(socket.room).emit('message', {
+            text: `${socket.nickname}: ${msg}`,
+            color: userColors[socket.nickname]
+        });
 
         if (roomTimeouts[socket.room]) {
             clearTimeout(roomTimeouts[socket.room]);
@@ -123,7 +159,10 @@ io.on('connection', (socket) => {
     });
 
     socket.on('typing', () => {
-        socket.to(socket.room).emit('typing', { nickname: socket.nickname, color: userColors[socket.nickname] });
+        socket.to(socket.room).emit('typing', {
+            nickname: socket.nickname,
+            color: userColors[socket.nickname]
+        });
     });
 
     socket.on('stopTyping', () => {
@@ -131,11 +170,24 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        io.to(socket.room).emit('message', { text: `${socket.nickname} ha dejado la sala`, color: userColors[socket.nickname] });
+        if (socket.room && socket.nickname) {
+            io.to(socket.room).emit('message', {
+                text: `${socket.nickname} ha dejado la sala`,
+                color: userColors[socket.nickname]
+            });
 
-        roomUsers[socket.room]--;
-        if (roomUsers[socket.room] === 0) {
-            clearRoomFiles(socket.room);
+            roomUsers[socket.room]--;
+            
+            if (roomUsers[socket.room] === 0) {
+                clearRoomFiles(socket.room);
+                // Delete room when empty
+                delete rooms[socket.room];
+                // Update available rooms for all clients
+                io.emit('availableRooms', Object.values(rooms).map(room => ({
+                    name: room.name,
+                    isPrivate: room.isPrivate
+                })));
+            }
         }
     });
 });
