@@ -42,7 +42,15 @@ app.use('/uploads', express.static('uploads'));
 
 // Endpoint para subir archivos
 app.post('/upload', upload.single('file'), (req, res) => {
-    res.json({ filePath: `/uploads/${req.file.filename}`, fileName: req.file.originalname });
+    const filePath = `/uploads/${req.file.filename}`;
+    
+    // Obtener la sala del usuario (esto requiere que enviemos el room en el header o query)
+    // Por ahora, registraremos todos los archivos y los limpiaremos periódicamente
+    
+    res.json({ 
+        filePath: filePath, 
+        fileName: req.file.originalname 
+    });
 });
 
 const userColors = {};
@@ -50,22 +58,74 @@ const colors = ['#FF5733', '#33FF57', '#3357FF', '#FF33A2', '#FFD700', '#00FFFF'
 const roomUsers = {}; // Contador de usuarios en cada sala
 const roomTimeouts = {}; // Manejo de tiempo de inactividad en cada sala
 const rooms = {}; // Información de salas (nombre, tipo, contraseña)
+const roomFiles = {}; // Tracking de archivos por sala
 
 function getRandomColor() {
     return colors[Math.floor(Math.random() * colors.length)];
 }
 
 function clearRoomFiles(room) {
-    const dir = 'uploads/';
-    fs.readdir(dir, (err, files) => {
-        if (err) throw err;
-        for (const file of files) {
-            if (file.includes(room)) {
-                fs.unlink(path.join(dir, file), err => {
-                    if (err) throw err;
-                });
+    console.log(`🗑️ Limpiando archivos de la sala: ${room}`);
+    
+    if (!roomFiles[room]) {
+        console.log(`No hay archivos registrados para la sala: ${room}`);
+        return;
+    }
+
+    const filesToDelete = roomFiles[room];
+    let deletedCount = 0;
+    let errorCount = 0;
+
+    filesToDelete.forEach(filePath => {
+        const fullPath = path.join(__dirname, filePath.replace(/^\//, ''));
+        
+        fs.unlink(fullPath, (err) => {
+            if (err) {
+                console.error(`❌ Error al eliminar archivo ${filePath}:`, err.message);
+                errorCount++;
+            } else {
+                console.log(`✅ Archivo eliminado: ${filePath}`);
+                deletedCount++;
             }
+            
+            // Log final cuando se procesen todos los archivos
+            if (deletedCount + errorCount === filesToDelete.length) {
+                console.log(`📊 Limpieza completada para sala ${room}: ${deletedCount} eliminados, ${errorCount} errores`);
+            }
+        });
+    });
+
+    // Limpiar el registro de archivos de la sala
+    delete roomFiles[room];
+}
+
+// Función para limpiar archivos antiguos (más de 1 hora)
+function cleanupOldFiles() {
+    const uploadsDir = path.join(__dirname, 'uploads');
+    const oneHourAgo = Date.now() - (60 * 60 * 1000); // 1 hora en milisegundos
+
+    fs.readdir(uploadsDir, (err, files) => {
+        if (err) {
+            console.error('Error al leer directorio uploads:', err);
+            return;
         }
+
+        files.forEach(file => {
+            const filePath = path.join(uploadsDir, file);
+            
+            fs.stat(filePath, (err, stats) => {
+                if (err) return;
+                
+                // Si el archivo es más viejo que 1 hora, eliminarlo
+                if (stats.mtime.getTime() < oneHourAgo) {
+                    fs.unlink(filePath, (err) => {
+                        if (!err) {
+                            console.log(`🕐 Archivo antiguo eliminado: ${file}`);
+                        }
+                    });
+                }
+            });
+        });
     });
 }
 
@@ -119,6 +179,9 @@ io.on('connection', (socket) => {
             color: userColors[nickname]
         });
 
+        // Enviar contador de usuarios a todos en la sala
+        io.to(room).emit('userCount', roomUsers[room]);
+
         // Update available rooms for all clients
         io.emit('availableRooms', Object.values(rooms).map(room => ({
             name: room.name,
@@ -142,6 +205,12 @@ io.on('connection', (socket) => {
     });
 
     socket.on('fileMessage', (data) => {
+        // Registrar el archivo en la sala
+        if (!roomFiles[socket.room]) {
+            roomFiles[socket.room] = [];
+        }
+        roomFiles[socket.room].push(data.filePath);
+        
         io.to(socket.room).emit('fileMessage', {
             nickname: socket.nickname,
             color: userColors[socket.nickname],
@@ -178,6 +247,9 @@ io.on('connection', (socket) => {
 
             roomUsers[socket.room]--;
             
+            // Enviar contador actualizado de usuarios
+            io.to(socket.room).emit('userCount', roomUsers[socket.room]);
+            
             if (roomUsers[socket.room] === 0) {
                 clearRoomFiles(socket.room);
                 // Delete room when empty
@@ -193,4 +265,14 @@ io.on('connection', (socket) => {
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Servidor en ejecución en el puerto ${PORT}`));
+server.listen(PORT, () => {
+    console.log(`🚀 Servidor en ejecución en el puerto ${PORT}`);
+    console.log(`📁 Directorio de uploads: ${path.join(__dirname, 'uploads')}`);
+    
+    // Limpieza de archivos antiguos cada hora
+    setInterval(cleanupOldFiles, 60 * 60 * 1000);
+    console.log(`🕐 Limpieza automática de archivos configurada (cada hora)`);
+    
+    // Ejecutar limpieza inicial
+    setTimeout(cleanupOldFiles, 5000); // Después de 5 segundos del inicio
+});
